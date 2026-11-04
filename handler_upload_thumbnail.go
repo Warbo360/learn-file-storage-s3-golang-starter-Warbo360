@@ -1,10 +1,13 @@
 package main
 
 import (
-	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -58,19 +61,23 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	// Read image data into a bute slice
 
-	imageSlice, err := io.ReadAll(data)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Error reading image file", err)
-		return
-	}
+	// imageSlice, err := io.ReadAll(data)
+	// if err != nil {
+	// 	respondWithError(w, http.StatusBadRequest, "Error reading image file", err)
+	// 	return
+	// }
+
+	// NOTE: --- HERE DOWN IS FOR UPLOADING THUMBNAILS VIA BASE64 STRING ENCODING INTO SQLITE
 
 	// Encode imageSLice to base64 string to store in relational database
 
-	imageString64 := base64.StdEncoding.EncodeToString(imageSlice)
+	// imageString64 := base64.StdEncoding.EncodeToString(imageSlice)
 
 	// Create dataURL string
 
-	imageDataURL := fmt.Sprintf("data:%v;base64,%v", headerMediaType, imageString64)
+	// imageDataURL := fmt.Sprintf("data:%v;base64,%v", headerMediaType, imageString64)
+
+	// NOTE: --- HERE UP IS FOR UPLOADING THUMBNAILS VIA BASE64 STRING ENCODING INTO SQLITE
 
 	// Get db hit on video ID
 
@@ -87,6 +94,32 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Extract file extension needed for path from content-type
+
+	extension, err := extractFileExtension(headerMediaType)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Could not parse content type", err)
+		return
+	}
+
+	// Create filepath to save thumbnail image to disk
+
+	imagePath := filepath.Join(cfg.assetsRoot, dbVideo.ID.String()+"."+extension)
+
+	// Create the new file to save to disk
+
+	file, err := os.Create(imagePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error creating filepath to save image to", err)
+		return
+	}
+	if _, err := io.Copy(file, data); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error saving image bytes to file", err)
+		return
+	}
+
+	// NOTE: --- HERE IS FOR UPLOADINF THUMBNAILS VIA GLOBAL MAP
+
 	// Create new thumbnail struct with obtained image slice and media type
 
 	// newTN := thumbnail{
@@ -101,7 +134,11 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	// Construct the new thumbnail url and set that for the dbVideo
 
 	//newURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, dbVideo.ID.String())
-	dbVideo.ThumbnailURL = &imageDataURL
+
+	// NOTE: --- UP IS FOR UPLOADING THUMBNAILS VIA GLOBAL MAP
+
+	tnURL := fmt.Sprintf("http://localhost:%v/%v", cfg.port, imagePath)
+	dbVideo.ThumbnailURL = &tnURL
 
 	// Query to update the video after updating thumbnail URL
 
@@ -114,4 +151,12 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	// Respond with updated dbVideo struct
 
 	respondWithJSON(w, http.StatusOK, dbVideo)
+}
+
+func extractFileExtension(s string) (string, error) {
+	splitContentType := strings.Split(s, "/")
+	if len(splitContentType) != 2 {
+		return "", errors.New("Content-Type not supported by extractFileExtension")
+	}
+	return splitContentType[1], nil
 }
