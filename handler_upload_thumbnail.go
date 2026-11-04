@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -154,9 +155,13 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 }
 
 func extractFileExtension(s string) (string, error) {
-	splitContentType := strings.Split(s, "/")
-	if len(splitContentType) != 2 {
-		return "", errors.New("Content-Type not supported by extractFileExtension")
+	mediaType, _, err := mime.ParseMediaType(s)
+	if err != nil {
+		return "", errors.New("Error parsing media type")
 	}
-	return splitContentType[1], nil
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		return "", errors.New("Media type no supported")
+	}
+	splitMediaType := strings.Split(mediaType, "/")
+	return splitMediaType[1], nil
 }
