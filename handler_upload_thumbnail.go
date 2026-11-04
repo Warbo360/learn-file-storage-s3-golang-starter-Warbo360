@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -63,6 +64,14 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Encode imageSLice to base64 string to store in relational database
+
+	imageString64 := base64.StdEncoding.EncodeToString(imageSlice)
+
+	// Create dataURL string
+
+	imageDataURL := fmt.Sprintf("data:%v;base64,%v", headerMediaType, imageString64)
+
 	// Get db hit on video ID
 
 	dbVideo, err := cfg.db.GetVideo(videoID)
@@ -80,19 +89,19 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	// Create new thumbnail struct with obtained image slice and media type
 
-	newTN := thumbnail{
-		data:      imageSlice,
-		mediaType: headerMediaType,
-	}
+	// newTN := thumbnail{
+	// 	data:      imageSlice,
+	// 	mediaType: headerMediaType,
+	// }
 
 	// Add the new thumbnail to the global map
 
-	videoThumbnails[dbVideo.ID] = newTN
+	//videoThumbnails[dbVideo.ID] = newTN
 
 	// Construct the new thumbnail url and set that for the dbVideo
 
-	newURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, dbVideo.ID.String())
-	dbVideo.ThumbnailURL = &newURL
+	//newURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, dbVideo.ID.String())
+	dbVideo.ThumbnailURL = &imageDataURL
 
 	// Query to update the video after updating thumbnail URL
 
