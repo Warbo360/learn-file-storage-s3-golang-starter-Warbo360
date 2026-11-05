@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -105,7 +107,10 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	// Create filepath to save thumbnail image to disk
 
-	imagePath := filepath.Join(cfg.assetsRoot, dbVideo.ID.String()+"."+extension)
+	fileKey := make([]byte, 32)
+	rand.Read(fileKey)
+	encodedFileName := base64.URLEncoding.EncodeToString(fileKey)
+	imagePath := filepath.Join(cfg.assetsRoot, encodedFileName+"."+extension)
 
 	// Create the new file to save to disk
 
