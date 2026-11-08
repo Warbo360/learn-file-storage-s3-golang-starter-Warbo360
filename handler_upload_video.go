@@ -1,9 +1,16 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"io"
 	"mime"
 	"net/http"
+	"os"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 )
@@ -72,6 +79,57 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 	if mediaType != "video/mp4" {
 		respondWithError(w, http.StatusBadRequest, "Incorrect file type in request", err)
+		return
+	}
+
+	// Save uploaded video to a temp file on local disk
+
+	file, err := os.CreateTemp("", "tubely-upload.mp4")
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error saving temp upload", err)
+		return
+	}
+	defer os.Remove(file.Name())
+	defer file.Close()
+	if _, err := io.Copy(file, data); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error copying video data to file", err)
+		return
+	}
+
+	// Reset the file pointer to the start of the file to allow reading from the start again
+
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error reset file pointer of saved video upload", err)
+		return
+	}
+
+	// Put object into s3
+
+	key := make([]byte, 32)
+	rand.Read(key)
+	encodedKey := base64.URLEncoding.EncodeToString(key) + ".mp4"
+
+	input := s3.PutObjectInput{
+		Bucket:      &cfg.s3Bucket,
+		Key:         &encodedKey,
+		Body:        io.Reader(file),
+		ContentType: &mediaType,
+	}
+	if _, err := cfg.s3Client.PutObject(
+		context.Background(),
+		&input,
+	); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error putting file into s3", err)
+		return
+	}
+
+	// Update database video URL
+
+	updatedVideoURL := fmt.Sprintf("http://tubely-0864297531.s3.%v.amazonaws.com/%v", cfg.s3Region, encodedKey)
+	dbVideo.VideoURL = &updatedVideoURL
+	err = cfg.db.UpdateVideo(dbVideo)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error updating database video URL", err)
 		return
 	}
 }
