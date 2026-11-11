@@ -89,12 +89,27 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Error saving temp upload", err)
 		return
 	}
-	defer os.Remove(file.Name())
 	defer file.Close()
+	defer os.Remove(file.Name())
 	if _, err := io.Copy(file, data); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error copying video data to file", err)
 		return
 	}
+
+	// Fast start processing of the file which hands back a new filepath that we then pass to the body for io.Reader
+
+	fastFilePath, err := processVideoForFastStart(file.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error enabling fast play with ffmpeg", err)
+		return
+	}
+	fastFile, err := os.Open(fastFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error opening fast file path", err)
+		return
+	}
+	defer fastFile.Close()
+	defer os.Remove(fastFile.Name())
 
 	// Reset the file pointer to the start of the file to allow reading from the start again
 
@@ -116,13 +131,12 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Error parsing file for aspect ratio", err)
 		return
 	}
-	fmt.Printf("aspectRatio: %v", aspectRatio)
 	if aspectRatio == "16:9" {
-		encodedKey = "/landscape/" + encodedKey
+		encodedKey = "landscape/" + encodedKey
 	} else if aspectRatio == "9:16" {
-		encodedKey = "/portrait/" + encodedKey
+		encodedKey = "portrait/" + encodedKey
 	} else {
-		encodedKey = "/other/" + encodedKey
+		encodedKey = "other/" + encodedKey
 	}
 
 	// Actually uploading to s3
@@ -130,7 +144,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	input := s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
 		Key:         &encodedKey,
-		Body:        io.Reader(file),
+		Body:        io.Reader(fastFile),
 		ContentType: &mediaType,
 	}
 	if _, err := cfg.s3Client.PutObject(
